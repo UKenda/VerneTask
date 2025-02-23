@@ -62,6 +62,7 @@ void PubSubServer::handle_client(int client_socket) {
         int bytes_read = read(client_socket, buffer, sizeof(buffer));
         if (bytes_read <= 0) {
             std::cout << "Client disconnected." << std::endl;
+            client_names.erase(client_socket);
             close(client_socket);
             return;
         }
@@ -81,20 +82,37 @@ void PubSubServer::handle_message(int client_socket, const std::string& message)
             topic.erase(std::remove(topic.begin(), topic.end(), '\r'), topic.end());
             std::lock_guard<std::mutex> lock(mutex_);
             topic_subscribers[topic].insert(client_socket);
-            std::cout << "Client subscribed to: '" << topic <<"'" <<std::endl;
+            std::cout << "Client " << client_names[client_socket] << " subscribed to: '" << topic <<"'" <<std::endl;
         }
     } else if (message.rfind(PUBLISH_COMMAND, 0) == 0) {
         auto pos = message.find(' ', sizeof(PUBLISH_COMMAND));
-        std::string topic = message.substr(8, pos - 8);
+        std::string topic = message.substr(sizeof(PUBLISH_COMMAND), pos - sizeof(PUBLISH_COMMAND));
         std::string content = message.substr(pos + 1);
         std::lock_guard<std::mutex> lock(mutex_);
         if (topic_subscribers.count(topic)) {
-            std::cout << "Count " << topic_subscribers.count(topic) << std::endl;
             for (int subscriber : topic_subscribers[topic]) {
-                std::cout << "Received message: " << subscriber << " topic: '" << topic <<"' contet: " << content <<std::endl;
-                send_message(subscriber, content);
+                send_message(subscriber, "Topic: " + topic + " Data: " + content + "\n");
             }
         }
+    } else if (message.rfind(UNSUBSCRIBE_COMMAND, 0) == 0) {
+        if(message.rfind("/", sizeof(UNSUBSCRIBE_COMMAND))!= std::string::npos) {
+            std::string topic = message.substr(message.rfind("/", sizeof(UNSUBSCRIBE_COMMAND)));
+            // Properly remove newline characters (\n, \r,) when used from therminal
+            topic.erase(std::remove(topic.begin(), topic.end(), '\n'), topic.end());
+            topic.erase(std::remove(topic.begin(), topic.end(), '\r'), topic.end());
+            std::lock_guard<std::mutex> lock(mutex_);
+
+            topic_subscribers[topic].erase(client_socket);
+            std::cout << "Client " << client_names[client_socket] << " unsubscribed from: '" << topic <<"'" <<std::endl;
+        }
+    } else if (message.rfind(NAME_COMMAND, 0) == 0) {
+        std::string client_name = message.substr(sizeof(NAME_COMMAND));
+        // Properly remove newline characters (\n, \r,) when used from therminal
+        client_name.erase(std::remove(client_name.begin(), client_name.end(), '\n'), client_name.end());
+        client_name.erase(std::remove(client_name.begin(), client_name.end(), '\r'), client_name.end());
+
+        client_names[client_socket] = client_name;
+        std::cout << "With name: " << client_name <<std::endl;
     }
 }
 
